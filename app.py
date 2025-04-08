@@ -47,7 +47,7 @@ if page == "Thermal Comfort Calculator":
     if st.button("Calculate Thermal Comfort Indices"):
         # Calculate PMV/PPD
         try:
-            pmv_result = pmv_ppd_iso(tdb=tdb, tr=tr, vr=vr, rh=rh, met=met, clo=clo, model='7730-2005')
+            pmv_result = pmv_ppd_iso(tdb=tdb, tr=tr, vr=vr, rh=rh, met=1.4, clo=0.5, model='7730-2005')
             
             # Calculate UTCI
             utci_result = utci(tdb=tdb, tr=tr, v=vr, rh=rh)
