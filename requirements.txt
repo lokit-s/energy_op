@@ -5,3 +5,6 @@ requests
 pythermalcomfort
 openai
 crewai
+pysqlite3-binary
+
+
