@@ -1,13 +1,5 @@
 
 
-import sys
-import os
-
-try:
-    import pysqlite3
-    sys.modules["sqlite3"] = pysqlite3
-except ImportError:
-    pass
 
 import os
 import streamlit as st
