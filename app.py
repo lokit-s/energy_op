@@ -2,8 +2,6 @@ import pysqlite3
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
-
-
 import os
 import streamlit as st
 import pandas as pd
@@ -14,15 +12,25 @@ from openai import OpenAI
 from crewai import Agent, Task, Crew, Process
 from datetime import datetime
 
+st.markdown("""
+<div style='text-align: center; margin-bottom: 12px;'>
+    <img src="https://github.com/lokit-s/energy_op/blob/main/apzlsycyzpgwplh6w3me.png?raw=true"
+         alt="App Logo"
+         style="width:150px; height:150px; border-radius:10%; "/>
+</div>
+<div style='text-align: center; color: #003366; font-size: 18px; font-weight: 500; margin-bottom: 12px;'>
+    Our multi-agent system helps optimize comfort and energy efficiency in buildings.
+</div>
+<hr style="border: 1px solid #003366; margin-bottom: 24px;">
+""", unsafe_allow_html=True)
 
-# Set page config
-st.set_page_config(page_title="Building Intelligence System (CrewAI)", layout="wide")
+
 
 # Add this code to make sidebar blue and text bolder
 st.markdown("""
 <style>
 [data-testid=stSidebar] {
-  background-color: #60B5FF;
+  background-color: #4d85e5;
 }
 /* Make all text in sidebar bold */
 [data-testid=stSidebar] p, 
@@ -41,9 +49,10 @@ st.markdown("""
 [data-testid=stSidebar] h4 {
   font-weight: 800 !important;
 }
+radius: 8px;
+}
 </style>
 """, unsafe_allow_html=True)
-
 
 # Initialize session state for storing data between agents
 if 'thermal_data' not in st.session_state:
@@ -52,27 +61,66 @@ if 'openai_api_key' not in st.session_state:
     st.session_state.openai_api_key = ""
 if 'results' not in st.session_state:
     st.session_state.results = {}
-# Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar for API key and agent selection
 with st.sidebar:
-    st.header("🔑 API Configuration")
+    st.header("API Configuration")
     openai_api_key = st.text_input("Enter your OpenAI API key:",
-                                 type="password",
-                                 value=st.session_state.openai_api_key)
+                                   type="password",
+                                   value=st.session_state.openai_api_key)
     st.session_state.openai_api_key = openai_api_key
 
-    # Set the API key for CrewAI to use
-    if openai_api_key and openai_api_key.startswith('sk-'):
-        os.environ["OPENAI_API_KEY"] = openai_api_key
-
-    st.header("🤖 Agent Selection")
+    st.header("Agent Selection")
     agent_selection = st.selectbox("Select Agent:",
-                              ["Thermal Comfort Agent", "Energy Optimization Agent"])
+                                   ["Thermal Comfort Agent", "Energy Optimization Agent"])
 
-# Helper functions
+    # --- LOGO CSS for bottom placement and round/white style ---
+    st.markdown("""
+    <style>
+    /* Make sidebar a flex column */
+    [data-testid="stSidebar"] > div:first-child {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+    /* Spacer grows to push logos down */
+    .spacer {
+        flex: 1 1 auto;
+        height: 8px;
+    }
+    .sidebar-bottom-logos {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+    .sidebar-bottom-logos img {
+        width: 45px;
+        height: 45px;
+        border-radius: 10%;
+        background: #fff;
+        padding: 0px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        object-fit: scale-down;
+        border: 2px solid #fff;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- SPACER to push logos to bottom ---
+    st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
+
+    # --- LOGOS PLACEMENT ---
+    st.markdown('''
+    <div class="sidebar-bottom-logos">
+        <img src="https://github.com/LLM-AI-INDIA/GenAI-Bootcamp-FEB2025/blob/main/Lab-4/image/default_logo.png?raw=true" alt="Logo 1">
+        <img src="https://github.com/LLM-AI-INDIA/GenAI-Bootcamp-FEB2025/blob/main/Lab-4/image/002.png?raw=true" alt="Logo 2">
+    </div>
+    ''', unsafe_allow_html=True)
+
+
 @st.cache_resource
 def get_openai_client(api_key):
     if api_key and api_key.startswith('sk-'):
@@ -80,7 +128,6 @@ def get_openai_client(api_key):
     return None
 
 def get_weather_data(lat, lon):
-    """Fetch weather data from Open-Meteo API (no auth required)"""
     url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m"
     response = requests.get(url)
     if response.status_code == 200:
@@ -89,7 +136,6 @@ def get_weather_data(lat, lon):
 
 @st.cache_data
 def get_sample_data():
-    """Generate sample energy data template"""
     sample_data = {
         "current_temperature": [23.5],
         "humidity_level": [45.0],
@@ -105,11 +151,9 @@ def get_sample_data():
     return pd.DataFrame(sample_data)
 
 def calculate_thermal_metrics(inputs):
-    """Calculate thermal comfort metrics"""
     pmv_result = pmv_ppd_iso(tdb=inputs['tdb'], tr=inputs['tr'], vr=inputs['vr'],
                            rh=inputs['rh'], met=inputs['met'], clo=inputs['clo'])
     utci_result = utci(tdb=inputs['tdb'], tr=inputs['tr'], v=inputs['vr'], rh=inputs['rh'])
-
     return {
         'pmv': round(pmv_result.pmv, 2),
         'ppd': round(pmv_result.ppd, 1),
@@ -117,18 +161,13 @@ def calculate_thermal_metrics(inputs):
         'utci_category': utci_result.stress_category
     }
 
-# Chat function to process user queries
 def process_chat_query(query):
     if not st.session_state.openai_api_key:
         return "Please enter a valid OpenAI API key to use the chat feature."
-
     client = get_openai_client(st.session_state.openai_api_key)
     if not client:
         return "Invalid OpenAI API key. Please check your API key and try again."
-
-    # Prepare context from available reports
     context = "You are a building intelligence assistant that helps with thermal comfort and energy optimization questions."
-
     if st.session_state.thermal_data:
         context += f"\n\nThermal data available: Building type: {st.session_state.thermal_data['building_type']}, "
         context += f"Temperature: {st.session_state.thermal_data['tdb']}°C, "
@@ -136,17 +175,12 @@ def process_chat_query(query):
         context += f"PMV: {st.session_state.thermal_data['pmv']}, "
         context += f"PPD: {st.session_state.thermal_data['ppd']}%, "
         context += f"UTCI: {st.session_state.thermal_data['utci']}°C ({st.session_state.thermal_data['utci_category']})"
-
     if "thermal_analysis" in st.session_state.results:
-        # Convert CrewOutput to string
         thermal_analysis = str(st.session_state.results["thermal_analysis"])
         context += "\n\nThermal Analysis Report:\n" + thermal_analysis
-
     if "energy_optimization" in st.session_state.results:
-        # Convert CrewOutput to string
         energy_optimization = str(st.session_state.results["energy_optimization"])
         context += "\n\nEnergy Optimization Report:\n" + energy_optimization
-
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -161,7 +195,6 @@ def process_chat_query(query):
     except Exception as e:
         return f"Error generating response: {str(e)}"
 
-# Define CrewAI agents
 def create_thermal_agent():
     return Agent(
         role="Thermal Comfort Analyst",
@@ -180,7 +213,6 @@ def create_energy_agent():
         allow_delegation=False
     )
 
-# Define tasks
 def create_thermal_analysis_task(inputs, agent):
     return Task(
         description=f"Calculate thermal comfort metrics and generate a report for a {inputs['building_type']} building with: Air temp {inputs['tdb']}°C, Mean radiant temp {inputs['tr']}°C, Relative humidity {inputs['rh']}%, Air velocity {inputs['vr']} m/s, Activity level {inputs['met']} met, Clothing insulation {inputs['clo']} clo",
@@ -189,7 +221,6 @@ def create_thermal_analysis_task(inputs, agent):
     )
 
 def create_energy_optimization_task(thermal_data, energy_inputs, agent):
-    # Include thermal data directly in the task description
     thermal_data_str = ""
     if thermal_data:
         thermal_data_str = f"""
@@ -202,7 +233,6 @@ def create_energy_optimization_task(thermal_data, energy_inputs, agent):
         UTCI: {thermal_data['utci']}°C
         UTCI Category: {thermal_data['utci_category']}
         """
-
     return Task(
         description=f"""Generate energy optimization recommendations based on the following:
 
@@ -219,28 +249,19 @@ def create_energy_optimization_task(thermal_data, energy_inputs, agent):
         agent=agent
     )
 
-# Run thermal comfort analysis
 def run_thermal_analysis(env_params):
     if not st.session_state.openai_api_key:
         st.error("Please enter a valid OpenAI API key to generate the report.")
         return None
-
     with st.spinner("Running thermal comfort analysis with CrewAI..."):
-        # Create agent
         thermal_agent = create_thermal_agent()
-
-        # Create task
         thermal_task = create_thermal_analysis_task(env_params, thermal_agent)
-
-        # Create crew
         thermal_crew = Crew(
             agents=[thermal_agent],
             tasks=[thermal_task],
             verbose=True,
             process=Process.sequential
         )
-
-        # Run analysis
         try:
             thermal_result = thermal_crew.kickoff()
             return thermal_result
@@ -248,28 +269,19 @@ def run_thermal_analysis(env_params):
             st.error(f"Error running thermal analysis: {str(e)}")
             return None
 
-# Run energy optimization
 def run_energy_optimization(thermal_data, energy_inputs):
     if not st.session_state.openai_api_key:
         st.error("Please enter a valid OpenAI API key to generate recommendations.")
         return None
-
     with st.spinner("Running energy optimization with CrewAI..."):
-        # Create agent
         energy_agent = create_energy_agent()
-
-        # Create task
         energy_task = create_energy_optimization_task(thermal_data, energy_inputs, energy_agent)
-
-        # Create crew
         energy_crew = Crew(
             agents=[energy_agent],
             tasks=[energy_task],
             verbose=True,
             process=Process.sequential
         )
-
-        # Run optimization
         try:
             energy_result = energy_crew.kickoff()
             return energy_result
@@ -277,12 +289,9 @@ def run_energy_optimization(thermal_data, energy_inputs):
             st.error(f"Error running energy optimization: {str(e)}")
             return None
 
-# Chat UI component that can be added to any page
 def chat_ui():
     st.divider()
     st.subheader("💬 Building Intelligence Chat")
-
-    # Display available data summary if any
     if st.session_state.thermal_data or st.session_state.results:
         available_data = []
         if st.session_state.thermal_data:
@@ -291,81 +300,54 @@ def chat_ui():
             available_data.append("Thermal analysis report")
         if "energy_optimization" in st.session_state.results:
             available_data.append("Energy optimization recommendations")
-
         if available_data:
             st.caption(f"Available context: {', '.join(available_data)}")
-
-    # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-
-    # Chat input
-    if prompt := st.chat_input("Ask a question about building comfort or energy..."):
-        # Add user message to chat history
+    if prompt := st.chat_input("Interact with LLM"):
         st.session_state.messages.append({"role": "user", "content": prompt})
-
-        # Display user message
         with st.chat_message("user"):
             st.markdown(prompt)
-
-        # Generate and display response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 response = process_chat_query(prompt)
                 st.markdown(response)
-
-        # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": response})
 
-# THERMAL COMFORT AGENT
 def thermal_comfort_agent_ui():
     st.header("Thermal Comfort Analyst")
     st.caption("**Goal:** Analyze indoor environmental parameters and generate technical thermal comfort reports")
-
-    # Location input
-    st.subheader("📍 Enter Location Coordinates")
+    st.subheader("Enter Location Coordinates")
     col1, col2 = st.columns(2)
     with col1:
         lat = st.number_input("Latitude", min_value=-90.0, max_value=90.0, value=20.0, format="%.6f")
     with col2:
         lon = st.number_input("Longitude", min_value=-180.0, max_value=180.0, value=78.0, format="%.6f")
-
-    # Map display
     st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
-
-    # Weather data
     weather_data = get_weather_data(lat, lon)
     if weather_data:
         st.success(f"Fetched weather: {weather_data['temperature_2m']}°C, RH {weather_data['relative_humidity_2m']}%, Wind {weather_data['wind_speed_10m']} m/s")
-
-    # Environmental parameters - moved from sidebar to main page
-    st.header("⚙️ Environmental Parameters")
+    st.header("Environmental Parameters")
     col1, col2 = st.columns(2)
-
     with col1:
         building_type = st.selectbox("Building Type", ["Office", "Residential", "Educational"])
         season = st.selectbox("Season", ["Summer", "Winter"])
-
         tdb = st.number_input("Air Temperature (°C)",
                              value=float(weather_data['temperature_2m']))
         tr = st.number_input("Mean Radiant Temperature (°C)", value=tdb)
         rh = st.slider("Relative Humidity (%)", 0, 100,
                      value=int(weather_data['relative_humidity_2m']))
-
     with col2:
-        # Clamp wind speed to valid range for PMV
         min_vr = 0.0
         max_vr = 1.0
         weather_vr = float(weather_data['wind_speed_10m'])
         default_vr = min(max(weather_vr, min_vr), max_vr)
         vr = st.number_input("Air Velocity (m/s)", min_value=min_vr, max_value=max_vr, value=default_vr)
-
         met = st.select_slider("Activity Level (met)",
                              options=[1.0, 1.2, 1.4, 1.6, 2.0, 2.4], value=1.4)
         clo = st.select_slider("Clothing Insulation (clo)",
                               options=[0.5, 0.7, 1.0, 1.5, 2.0, 2.5], value=0.5)
-
     if st.button("Execute Thermal Analysis"):
         if not st.session_state.openai_api_key:
             st.error("Please enter a valid OpenAI API key to generate the report.")
@@ -375,11 +357,7 @@ def thermal_comfort_agent_ui():
                 'met': met, 'clo': clo, 'building_type': building_type,
                 'season': season
             }
-
-            # Calculate metrics locally
             metrics = calculate_thermal_metrics(inputs)
-
-            # Store data for energy optimization agent
             st.session_state.thermal_data = {
                 'building_type': building_type,
                 'season': season,
@@ -394,50 +372,33 @@ def thermal_comfort_agent_ui():
                 'utci': metrics['utci'],
                 'utci_category': metrics['utci_category']
             }
-
-            # Run CrewAI thermal analysis
             thermal_result = run_thermal_analysis(inputs)
-
             if thermal_result:
                 st.session_state.results["thermal_analysis"] = thermal_result
-
-                # Display results
-                st.subheader("📊 Thermal Comfort Analysis Report")
+                st.subheader("Thermal Comfort Analysis Report")
                 st.markdown(str(thermal_result))
-
-                st.subheader("🌡️ Key Metrics")
+                st.subheader("Key Metrics")
                 col1, col2, col3 = st.columns(3)
                 col1.metric("PMV", f"{metrics['pmv']}", "Neutral (0)" if -0.5 < metrics['pmv'] < 0.5 else "Needs Adjustment")
                 col2.metric("PPD", f"{metrics['ppd']}%", help="Predicted Percentage Dissatisfied")
                 col3.metric("UTCI", f"{metrics['utci']}°C", metrics['utci_category'])
-
                 st.success("Thermal comfort analysis complete!")
-
-    # Add chat UI at the bottom of the page
     chat_ui()
 
-# ENERGY OPTIMIZATION AGENT
 def energy_optimization_agent_ui():
     st.header("Energy Optimization Engineer")
     st.caption("**Goal:** Recommend energy-saving actions while maintaining thermal comfort")
-
-    # Display thermal comfort data summary if available
     if st.session_state.thermal_data is not None:
-        st.subheader("📋 Thermal Comfort Analysis Summary")
+        st.subheader("Thermal Comfort Analysis Summary")
         thermal_data = st.session_state.thermal_data
-
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Building Type", thermal_data['building_type'])
         col2.metric("Indoor Temperature", f"{thermal_data['tdb']}°C")
         col3.metric("PMV", f"{thermal_data['pmv']}")
         col4.metric("UTCI", f"{thermal_data['utci']}°C", thermal_data['utci_category'])
     else:
-        st.info("No thermal comfort data available. You can still run energy optimization without it.")
-
-    # CSV Upload Section
-    st.subheader("📤 Upload Energy Data")
-
-    # Provide sample template for download
+        st.info("No thermal comfort data available.")
+    st.subheader("Upload Energy Data")
     sample_df = get_sample_data()
     st.download_button(
         label="Download Sample CSV Template",
@@ -445,11 +406,7 @@ def energy_optimization_agent_ui():
         file_name="energy_data_template.csv",
         mime="text/csv"
     )
-
-    # File uploader
     uploaded_file = st.file_uploader("Upload CSV file with energy data", type="csv")
-
-    # Default values
     current_temperature = 23.5
     humidity_level = 45.0
     ambient_light_level = 500
@@ -460,21 +417,15 @@ def energy_optimization_agent_ui():
     appliance_status = "Essential Only"
     lighting_power_usage = 12.3
     appliance_power_usage = 18.7
-
-    # Update with thermal data if available
     if st.session_state.thermal_data:
         current_temperature = float(st.session_state.thermal_data['tdb'])
         humidity_level = float(st.session_state.thermal_data['rh'])
         hvac_status = "On - Cooling" if current_temperature > 24 else "On - Heating"
-
-    # Process uploaded file if available
     if uploaded_file is not None:
         try:
             energy_data = pd.read_csv(uploaded_file)
             st.success(f"Successfully loaded data from {uploaded_file.name}")
             st.dataframe(energy_data)
-
-            # Update values from CSV if columns exist
             if 'current_temperature' in energy_data.columns:
                 current_temperature = float(energy_data['current_temperature'].iloc[0])
             if 'humidity_level' in energy_data.columns:
@@ -497,12 +448,8 @@ def energy_optimization_agent_ui():
                 appliance_power_usage = float(energy_data['appliance_power_usage'].iloc[0])
         except Exception as e:
             st.error(f"Error processing CSV file: {e}")
-
-    # Energy system inputs - moved from sidebar to main page
-    st.subheader("🏢 Building Energy System Status")
-
+    st.subheader("Building Energy System Status")
     col1, col2 = st.columns(2)
-
     with col1:
         current_temperature = st.number_input("Current Indoor Temperature (°C)",
                                             value=current_temperature, step=0.1)
@@ -513,8 +460,7 @@ def energy_optimization_agent_ui():
         current_power_consumption = st.number_input("Current Power Consumption (kW)",
                                                    value=current_power_consumption, min_value=0.0, step=0.1)
         energy_tariff_rate = st.number_input("Energy Tariff Rate ($/kWh)",
-                                           value=energy_tariff_rate, min_value=0.01, step=0.01)
-
+                                            value=energy_tariff_rate, min_value=0.01, step=0.01)
     with col2:
         hvac_status = st.selectbox("HVAC Status",
                                  ["On - Cooling", "On - Heating", "On - Fan Only", "Off"],
@@ -529,8 +475,6 @@ def energy_optimization_agent_ui():
                                              value=lighting_power_usage, min_value=0.0, step=0.1)
         appliance_power_usage = st.number_input("Appliance Power Usage (kW)",
                                               value=appliance_power_usage, min_value=0.0, step=0.1)
-
-    # AI Recommendations based on thermal comfort and energy data
     if st.button("Run Energy Optimization"):
         if not st.session_state.openai_api_key:
             st.error("Please enter a valid OpenAI API key to generate recommendations.")
@@ -547,21 +491,13 @@ def energy_optimization_agent_ui():
                 'lighting_power_usage': lighting_power_usage,
                 'appliance_power_usage': appliance_power_usage
             }
-
-            # Run CrewAI energy optimization
             energy_result = run_energy_optimization(st.session_state.thermal_data, energy_inputs)
-
             if energy_result:
                 st.session_state.results["energy_optimization"] = energy_result
-
-                # Display the recommendations
                 st.subheader("🤖 AI Energy Optimization Recommendations")
                 st.markdown(str(energy_result))
-
-    # Add chat UI at the bottom of the page
     chat_ui()
 
-# Main app logic
 def main():
     if agent_selection == "Thermal Comfort Agent":
         thermal_comfort_agent_ui()
