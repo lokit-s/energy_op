@@ -9,3 +9,4 @@ pysqlite3-binary
 scikit-learn
 statsmodels
 joblib
+plotly
