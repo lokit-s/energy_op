@@ -6,5 +6,6 @@ pythermalcomfort
 openai
 crewai
 pysqlite3-binary
-
-
+scikit-learn
+statsmodels
+joblib
